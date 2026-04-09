@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>東京グルメマップ</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html { height:100%; }
+body {
+  font-family: "Meiryo","Yu Gothic","游ゴシック","Hiragino Sans",sans-serif;
+  background:#FAF7F2;
+  color:#2A2420;
+  /* dvhに非対応のブラウザ向けフォールバック */
+  height:100vh;
+  height:100dvh;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* HEADER */
+#hd {
+  flex-shrink:0;
+  background:#fff;
+  border-bottom:1px solid #E2D9CE;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 14px;
+  box-shadow:0 1px 3px rgba(100,60,20,.08);
+}
+#logo { font-size:14px; font-weight:700; color:#2A2420; white-space:nowrap; flex-shrink:0; }
+#logo em { font-style:normal; color:#B8622A; }
+#q {
+  flex:1; min-width:0;
+  border:1px solid #E2D9CE; border-radius:20px;
+  padding:6px 13px; font-size:13px;
+  background:#F3EDE4; color:#2A2420;
+  font-family:inherit; outline:none;
+}
+#q::placeholder { color:#C0B8B0; }
+#cnt {
+  flex-shrink:0;
+  background:#B8622A; color:#fff;
+  border-radius:20px; padding:3px 10px;
+  font-size:11px; font-weight:700;
+}
+
+/* VIEW TOGGLE */
+#vt {
+  flex-shrink:0;
+  background:#fff; border-bottom:1px solid #E2D9CE;
+  display:flex; gap:8px; align-items:center;
+  padding:7px 14px;
+}
+.vb {
+  border:1.5px solid #CFC6BB; border-radius:8px;
+  padding:5px 14px; font-size:12px; font-weight:700;
+  background:#F3EDE4; color:#8A7F76;
+  cursor:pointer; font-family:inherit;
+}
+.vb.on { background:#B8622A; border-color:#B8622A; color:#fff; }
+
+/* FILTER BAR */
+#fb {
+  flex-shrink:0;
+  background:#fff; border-bottom:1px solid #E2D9CE;
+  display:flex; gap:6px; align-items:center;
+  padding:7px 10px;
+  overflow-x:auto; overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+}
+#fb::-webkit-scrollbar { display:none; }
+.ch {
+  flex-shrink:0;
+  border:1.5px solid #E2D9CE; border-radius:20px;
+  padding:4px 11px; font-size:12px; font-weight:500;
+  background:#F3EDE4; color:#8A7F76;
+  cursor:pointer; white-space:nowrap; font-family:inherit;
+  user-select:none; -webkit-user-select:none;
+}
+.ch.on { background:#B8622A; border-color:#B8622A; color:#fff; }
+
+/* MAIN - flex:1 で残りの高さを取る */
+#mn {
+  flex:1;
+  position:relative;
+  min-height:0;
+  overflow:hidden;
+}
+
+/* LIST - inset の代わりに top/left/right/bottom を明示 */
+#lv {
+  position:absolute;
+  top:0; left:0; right:0; bottom:0;
+  overflow-y:auto; overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  padding:10px 12px 30px;
+}
+
+/* MAP - inset の代わりに top/left/right/bottom を明示 */
+#mv {
+  position:absolute;
+  top:0; left:0; right:0; bottom:0;
+  display:none;
+}
+#map { width:100%; height:100%; }
+
+/* Leaflet popup */
+.leaflet-popup-content-wrapper {
+  background:#fff !important;
+  border:1px solid #E2D9CE !important;
+  border-radius:10px !important;
+  color:#2A2420 !important;
+  box-shadow:0 4px 16px rgba(80,40,10,.15) !important;
+}
+.leaflet-popup-tip { background:#fff !important; }
+.leaflet-popup-close-button { color:#8A7F76 !important; }
+.pp-lk {
+  display:block; text-align:center; background:#B8622A; color:#fff;
+  border-radius:6px; padding:7px; font-size:11px; font-weight:700; text-decoration:none;
+}
+</style>
+</head>
+<body>
+
+<div id="hd">
+  <div id="logo">🗾 東京<em>グルメ</em>マップ</div>
+  <input id="q" type="text" placeholder="店名・エリア・番組で検索…">
+  <div id="cnt">0件</div>
+</div>
+
+<div id="vt">
+  <button class="vb on" id="bl" onclick="sv('list')">📋 リスト</button>
+  <button class="vb"    id="bm" onclick="sv('map')">🗺 地図</button>
+</div>
+
+<div id="fb">
+  <div class="ch on" data-c="all">🗺 すべて</div>
+  <div class="ch" data-c="youshoku">🍳 洋食・定食</div>
+  <div class="ch" data-c="machichuka">🥟 町中華・台湾</div>
+  <div class="ch" data-c="izakaya">🍺 居酒屋・コの字</div>
+  <div class="ch" data-c="motsu">🔥 もつ焼き</div>
+  <div class="ch" data-c="ramen">🍜 ラーメン</div>
+  <div class="ch" data-c="curry">🍛 カレー</div>
+  <div class="ch" data-c="sushi">🐟 寿司・海鮮</div>
+  <div class="ch" data-c="yakiniku">🥩 焼肉</div>
+  <div class="ch" data-c="korean">🇰🇷 コリアン</div>
+  <div class="ch" data-c="cafe">☕ 甘味・喫茶</div>
+  <div class="ch" data-c="kodoku">🎬 孤独のグルメ</div>
+  <div class="ch" data-c="sakaba">🍶 酒場放浪記</div>
+  <div class="ch" data-c="drama">📺 コの字・町中華ドラマ</div>
+</div>
+
+<div id="mn">
+  <div id="lv"></div>
+  <div id="mv"><div id="map"></div></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+var CAT = {
+  youshoku:   {l:'洋食・定食',        i:'🍳', c:'#C06030'},
+  machichuka: {l:'町中華・台湾',       i:'🥟', c:'#C83030'},
+  izakaya:    {l:'居酒屋・コの字',     i:'🍺', c:'#6040A0'},
+  motsu:      {l:'もつ焼き・立ち飲み', i:'🔥', c:'#A02020'},
+  ramen:      {l:'ラーメン',           i:'🍜', c:'#C05010'},
+  curry:      {l:'カレー',             i:'🍛', c:'#A07010'},
+  sushi:      {l:'寿司・海鮮',         i:'🐟', c:'#2060A0'},
+  yakiniku:   {l:'焼肉・ホルモン',     i:'🥩', c:'#801010'},
+  korean:     {l:'コリアン',           i:'🇰🇷', c:'#206030'},
+  cafe:       {l:'甘味・喫茶',         i:'☕', c:'#704020'},
+  kodoku:     {l:'孤独のグルメ聖地',   i:'🎬', c:'#203050'},
+  sakaba:     {l:'酒場放浪記聖地',     i:'🍶', c:'#106050'},
+  drama:      {l:'コの字・町中華ドラマ',i:'📺', c:'#502080'}
+};
+
+var D = [
+  {id:1,  n:'とりかつチキン',     a:'渋谷・百軒店',     t:'youshoku',   lat:35.6572, lng:139.7003, d:'1977年創業。渋谷百軒店の雑居ビル2Fに佇む揚げ物定食の名店。コの字カウンターで揚げたての盛り合わせ定食を楽しめる。とりかつ・ハムカツ・コロッケなど組み合わせ自由。3品定食1,150円〜。麗郷と並び渋谷の本物として地元サラリーマンに愛され続ける。',   h:'11:00〜20:00（15:00〜17:00休）土日祝定休', b:'〜1,500円',      s:['渋谷老舗','各メディア取材'],              u:'https://tabelog.com/tokyo/A1303/A130301/13001699/'},
+  {id:2,  n:'キッチン南海',       a:'神保町',           t:'youshoku',   lat:35.6962, lng:139.7581, d:'神保町の学生・サラリーマンに50年以上愛されるカツカレーの聖地。黒いルーが特徴的で中毒性がある。昭和から変わらない価格帯と雰囲気が本物。',                                                                                                              h:'11:00〜21:00 日曜定休',                    b:'〜1,200円',      s:['神保町定番'],                              u:'https://tabelog.com/tokyo/A1310/A131003/13004370/'},
+  {id:3,  n:'たいめいけん',       a:'日本橋',           t:'youshoku',   lat:35.6820, lng:139.7740, d:'1931年創業。オムライス・コールスローが東京洋食の基準となっている老舗。3代続く本物の洋食屋。観光客も来るが地元ビジネスマンも通う。',                                                                                                                      h:'11:00〜21:00 月曜定休',                    b:'1,500〜3,000円', s:['日本橋老舗','報道取材常連'],               u:'https://tabelog.com/tokyo/A1302/A130201/13002476/'},
+  {id:4,  n:'香味屋',             a:'根岸',             t:'youshoku',   lat:35.7265, lng:139.7830, d:'1938年創業。下町・根岸に佇む老舗洋食屋。昔の東京の雰囲気がそのまま残る。ハンバーグや海老フライが絶品。地元住民に半世紀以上愛され続ける。',                                                                                                              h:'11:30〜14:00/17:30〜21:00 火曜定休',       b:'1,500〜3,000円', s:['下町洋食老舗'],                            u:'https://tabelog.com/tokyo/A1311/A131101/13017706/'},
+  {id:5,  n:'アカシア',           a:'新宿',             t:'youshoku',   lat:35.6940, lng:139.7034, d:'1963年創業。ロールキャベツシチューが名物の老舗洋食屋。新宿で知らない人はいない一軒。観光客より地元サラリーマンが通う本物。',                                                                                                                                 h:'11:00〜22:00 無休',                        b:'1,000〜2,000円', s:['新宿老舗','報道取材'],                     u:'https://tabelog.com/tokyo/A1304/A130401/13003571/'},
+  {id:6,  n:'グリル満天星',       a:'新宿',             t:'youshoku',   lat:35.6934, lng:139.7040, d:'オムレツが有名な老舗洋食屋。観光客も来るが地元常連も多い本物の洋食屋。新宿東口から徒歩3分。',                                                                                                                                                                   h:'11:30〜22:00 無休',                        b:'1,500〜3,000円', s:['新宿定番'],                                u:'https://tabelog.com/tokyo/A1304/A130401/13003344/'},
+  {id:7,  n:'小田保',             a:'新橋',             t:'youshoku',   lat:35.6665, lng:139.7574, d:'新橋サラリーマンの聖地大衆食堂。昭和そのままの空間で手頃な定食が食べられる。昼のピークタイムは行列必至。',                                                                                                                                                     h:'11:00〜23:00 日曜定休',                    b:'〜1,000円',      s:['新橋定番'],                                u:'https://tabelog.com/tokyo/A1301/A130101/13000497/'},
+  {id:8,  n:'成蔵',               a:'南阿佐ヶ谷',       t:'youshoku',   lat:35.7048, lng:139.6353, d:'食べログとんかつ全国1位を何度も獲得。完全予約制に移行したほどの実力店。低温揚げで仕上げる繊細なとんかつ。',                                                                                                                                                    h:'完全予約制・要確認',                        b:'5,000〜10,000円', s:['食べログ百名店'],                         u:'https://tabelog.com/tokyo/A1319/A131901/13133498/'},
+
+  {id:11, n:'麗郷',               a:'渋谷・道玄坂',     t:'machichuka', lat:35.6584, lng:139.7005, d:'1955年創業。レンガ造りの建物が目印の老舗台湾料理店。千と千尋の神隠しでお父さんが食べた肉圓（バーワン）を食べられる店として有名。しじみのにんにく炒め・海老チャーハン・腸詰めが人気。大きな円卓で相席スタイル。平日でも行列。',                    h:'11:30〜23:00 無休',                        b:'2,000〜4,000円', s:['渋谷老舗','報道取材'],                     u:'https://tabelog.com/tokyo/A1303/A130303/13000651/'},
+  {id:12, n:'兆楽',               a:'渋谷センター街',   t:'machichuka', lat:35.6620, lng:139.7024, d:'60年以上続く老舗町中華。センター街のど真ん中なのに昭和の雰囲気を守り続ける。看板メニューはルース（肉とタケノコの餡かけチャーハン）。芸人・地元民が通う本物の町中華。',                                                                                  h:'11:00〜22:00 無休',                        b:'〜1,500円',      s:['渋谷老舗','町中華で飲ろうぜ'],              u:'https://tabelog.com/tokyo/A1303/A130301/13001745/'},
+  {id:13, n:'岐阜屋',             a:'新宿・思い出横丁', t:'machichuka', lat:35.6955, lng:139.6995, d:'1947年創業。新宿思い出横丁内の老舗町中華。きくらげ卵炒めが名物。昭和の雰囲気が色濃く残る横丁の中で、特に歴史ある一軒。',                                                                                                                                  h:'11:00〜23:00 無休',                        b:'〜2,000円',      s:['新宿思い出横丁','各メディア'],              u:'https://tabelog.com/tokyo/A1304/A130401/13000610/'},
+  {id:14, n:'珍々軒',             a:'上野・高架下',     t:'machichuka', lat:35.7085, lng:139.7714, d:'上野〜御徒町の高架下にある大衆中華。昼から飲むおじさんの聖地。外テーブルで飲む昭和感が最高。チャーシュー盛りとビールで時間を忘れる。',                                                                                                                      h:'11:00〜22:00 不定休',                      b:'〜2,000円',      s:['上野定番'],                                u:''},
+  {id:15, n:'ぼたん',             a:'浅草',             t:'machichuka', lat:35.7126, lng:139.7988, d:'1948年創業。甘い麻婆豆腐が名物の老舗浅草町中華。途中から卓上の唐辛子をかけて味変するのが流儀。ニラそばも人気。昭和の雰囲気そのまま。',                                                                                                                    h:'11:30〜21:00 不定休',                      b:'〜1,500円',      s:['浅草定番'],                                u:''},
+  {id:16, n:'52（ゴニ）',         a:'目黒',             t:'machichuka', lat:35.6339, lng:139.7162, d:'都内の名だたるシェフたちが店上がりにこぞってやってくる町中華の最高峰。予約なしではほぼ不可能。チャーハン・麻婆豆腐・回鍋肉のレベルが別格。',                                                                                                               h:'18:30〜23:00 不定休 要予約',               b:'3,000〜5,000円', s:['プロ御用達'],                               u:'https://tabelog.com/tokyo/A1316/A131601/13262116/'},
+  {id:17, n:'一寸亭',             a:'谷中',             t:'machichuka', lat:35.7270, lng:139.7631, d:'孤独のグルメ・酒場放浪記・町中華で飲ろうぜ、三番組に登場した稀有な名店。谷中の下町にある正統派町中華。チャーハン・中華そばが人気。',                                                                                                                          h:'11:30〜20:00 火曜定休',                    b:'〜1,500円',      s:['孤独のグルメ','酒場放浪記','町中華で飲ろうぜ'], u:'https://tabelog.com/tokyo/A1311/A131103/13003988/'},
+  {id:18, n:'丸福',               a:'板橋',             t:'machichuka', lat:35.7519, lng:139.7103, d:'しっとり板橋チャーハンで有名。マツコの知らない世界・晩酌の流儀・タクシー飯店など複数の番組に登場。ランチタイムは行列。',                                                                                                                                    h:'11:30〜21:00 月曜定休',                    b:'〜1,500円',      s:['晩酌の流儀','マツコの知らない世界'],        u:'https://tabelog.com/tokyo/A1322/A132201/13043483/'},
+  {id:19, n:'開々亭',             a:'阿佐ヶ谷',         t:'machichuka', lat:35.7065, lng:139.6363, d:'1971年創業、52年目の名店。玉袋筋太郎さんの対談もここで行われた。町中華で飲ろうぜの聖地的な一軒。インパクト大の味玉炒飯が名物。',                                                                                                                            h:'11:30〜22:00 火曜定休',                    b:'〜2,000円',      s:['町中華で飲ろうぜ'],                         u:'https://tabelog.com/tokyo/A1319/A131903/13001476/'},
+  {id:20, n:'萬福',               a:'銀座',             t:'machichuka', lat:35.6720, lng:139.7649, d:'銀座に佇む老舗町中華。番組フェス出店店舗。銀座という立地でリーズナブルに食べられる貴重な一軒。',                                                                                                                                                               h:'11:00〜21:30 日曜定休',                    b:'〜2,000円',      s:['町中華で飲ろうぜ'],                         u:'https://tabelog.com/tokyo/A1301/A130101/13002213/'},
+  {id:21, n:'好又香',             a:'神田',             t:'machichuka', lat:35.6944, lng:139.7683, d:'プロが東京で一番通いたいと評する町中華の名店。何を食べても美味しいと言われる安定感。常連の支持が厚く、平日でも11:30には満席。',                                                                                                                            h:'11:30〜14:00/17:00〜20:00 土日定休',       b:'〜1,500円',      s:['プロ御用達'],                               u:''},
+
+  {id:30, n:'だるま',             a:'門前仲町',         t:'izakaya',    lat:35.6718, lng:139.7981, d:'1971年創業。二代目美人姉妹が切り盛りするコの字カウンター劇場として名高い。今夜はコの字で・酒場放浪記に登場。煮込みと焼き物を肴に一杯。',                                                                                                                h:'17:00〜23:00 日曜定休',                    b:'2,000〜3,500円', s:['今夜はコの字で','酒場放浪記'],              u:'https://tabelog.com/tokyo/A1313/A131303/13011097/'},
+  {id:31, n:'魚三酒場',           a:'門前仲町',         t:'izakaya',    lat:35.6720, lng:139.7985, d:'開店前から行列ができる門前仲町の人気居酒屋。新鮮な刺身が安い。白子や旬の魚介が評判。コスパ抜群。',                                                                                                                                                            h:'16:30〜22:00 月曜定休',                    b:'2,000〜3,500円', s:['酒場放浪記','門前仲町定番'],                u:'https://tabelog.com/tokyo/A1313/A131303/13011103/'},
+  {id:32, n:'宝泉',               a:'王子',             t:'izakaya',    lat:35.7574, lng:139.7368, d:'赤提灯に縄のれん。コの字カウンターが2つある「ダブルデッカー」構造の名酒場。今夜はコの字で・酒場放浪記に登場。地元常連で賑わう。',                                                                                                                          h:'17:00〜22:30 日月定休',                    b:'2,000〜3,000円', s:['今夜はコの字で','酒場放浪記'],              u:''},
+  {id:33, n:'武ちゃん',           a:'東銀座',           t:'izakaya',    lat:35.6697, lng:139.7683, d:'焼け跡の屋台が起源。客に上下無し、みな同じという先代の心意気が生き続ける焼き鳥店。今夜はコの字でS2に登場。白木輝くコの字カウンターが印象的。',                                                                                                          h:'16:00〜23:00 日曜定休',                    b:'2,000〜4,000円', s:['今夜はコの字でS2'],                          u:''},
+  {id:34, n:'まるます家',         a:'赤羽',             t:'izakaya',    lat:35.7781, lng:139.7216, d:'昭和25年創業。朝から飲める赤羽の有名店。コの字カウンターが2つ。鯉とうなぎという珍しいメニュー構成。酒場放浪記・各メディアに登場。赤羽飲みの象徴的存在。',                                                                                                h:'10:00〜22:00 無休',                        b:'2,000〜4,000円', s:['酒場放浪記','今夜はコの字で'],              u:'https://tabelog.com/tokyo/A1322/A132206/13000432/'},
+  {id:35, n:'田や',               a:'十条',             t:'izakaya',    lat:35.7566, lng:139.7213, d:'孤独のグルメと今夜はコの字で両方に登場した大衆割烹。女将さんの愛想の良さも評判。さば燻製が特におすすめ。',                                                                                                                                                 h:'17:00〜23:00 日曜定休',                    b:'2,000〜3,500円', s:['孤独のグルメ','今夜はコの字で'],             u:'https://tabelog.com/tokyo/A1322/A132202/13016060/'},
+  {id:36, n:'みますや',           a:'神田',             t:'izakaya',    lat:35.6933, lng:139.7683, d:'1905年創業。文豪も通った老舗居酒屋。酒場放浪記にも登場。神田の路地裏で変わらぬ空気を保つ。',                                                                                                                                                                h:'17:00〜23:00 土日祝定休',                  b:'2,000〜4,000円', s:['酒場放浪記','神田老舗'],                    u:'https://tabelog.com/tokyo/A1310/A131002/13002040/'},
+  {id:37, n:'加賀屋',             a:'蒲田',             t:'izakaya',    lat:35.5632, lng:139.7167, d:'昭和大衆居酒屋の教科書。蒲田で一番有名な飲み屋。適度な賑やかさと安さが地元客を引き寄せる。酒場放浪記でも紹介。',                                                                                                                                            h:'17:00〜23:30 不定休',                      b:'2,000〜3,500円', s:['蒲田定番','酒場放浪記'],                    u:''},
+  {id:38, n:'三祐酒場',           a:'京成曳舟',         t:'izakaya',    lat:35.7239, lng:139.8236, d:'焼酎ハイボール発祥の聖地。下町を代表する大衆酒場の一つ。酒場放浪記・今夜はコの字でにも登場。下町の酒飲み文化を今に伝える。',                                                                                                                              h:'16:00〜23:00 日曜定休',                    b:'1,500〜3,000円', s:['酒場放浪記','今夜はコの字で'],              u:'https://tabelog.com/tokyo/A1312/A131203/13022464/'},
+  {id:39, n:'酒場 ふくろ',        a:'池袋',             t:'izakaya',    lat:35.7295, lng:139.7109, d:'朝飲み・昼飲みOK。池袋の飲兵衛の聖地。酒場放浪記に登場。西口の美久仁小路にある老舗で正統派コの字カウンターが楽しめる。',                                                                                                                                 h:'10:00〜22:00 無休',                        b:'1,500〜3,000円', s:['酒場放浪記','今夜はコの字で'],              u:'https://tabelog.com/tokyo/A1305/A130501/13003001/'},
+  {id:40, n:'兵六',               a:'神保町',           t:'izakaya',    lat:35.6962, lng:139.7575, d:'世界一の書物の街の路地裏の至高のコの字酒場。文豪たちに愛されてきた一軒。今夜はコの字でに登場。',                                                                                                                                                            h:'17:00〜23:00 日曜定休',                    b:'2,000〜3,500円', s:['今夜はコの字で'],                          u:''},
+
+  {id:50, n:'秋田屋',             a:'浜松町',           t:'motsu',      lat:35.6551, lng:139.7567, d:'1928年創業。もつ焼き立ち飲みの元祖的存在。串130円台からというリーズナブルさが魅力。酒場放浪記・各メディアに多数登場。サラリーマンの聖地。',                                                                                                                h:'15:30〜22:00 日曜定休',                    b:'1,500〜3,000円', s:['酒場放浪記','報道取材'],                    u:'https://tabelog.com/tokyo/A1314/A131402/13003213/'},
+  {id:51, n:'宇ち多゛',           a:'立石',             t:'motsu',      lat:35.7319, lng:139.8468, d:'もつ焼きの聖地中の聖地。独特のルール（梅割り・注文の仕方）と強烈な常連文化で知られる。吉田類さんも訪問。開店前から行列。',                                                                                                                                 h:'13:00〜19:00頃 日月定休',                  b:'1,500〜3,000円', s:['酒場放浪記','各メディア'],                   u:'https://tabelog.com/tokyo/A1324/A132402/13000025/'},
+  {id:52, n:'大統領',             a:'上野アメ横',       t:'motsu',      lat:35.7085, lng:139.7714, d:'酒場放浪記に登場（#79）。戦後からのアメ横の雰囲気を受け継ぐ老舗。モツ焼きと煮込みに馬モツの煮込みというレアな料理も。',                                                                                                                                   h:'15:00〜22:30 月曜定休',                    b:'1,500〜3,000円', s:['酒場放浪記'],                              u:'https://tabelog.com/tokyo/A1311/A131101/13000478/'},
+  {id:53, n:'カッパ',             a:'荻窪',             t:'motsu',      lat:35.7030, lng:139.6209, d:'半世紀続くもつ焼きの店。タレの壺がカウンターに鎮座する。今夜はコの字でに登場。荻窪の地元民に愛される老舗。',                                                                                                                                                h:'17:00〜22:30 日曜定休',                    b:'2,000〜3,500円', s:['今夜はコの字で'],                          u:''},
+  {id:54, n:'ゑびす',             a:'四ツ木',           t:'motsu',      lat:35.7329, lng:139.8308, d:'下町の名もつ焼き店。自家製ロックアイスを使ったお茶割りが絶品。今夜はコの字で・酒場放浪記に登場。',                                                                                                                                                          h:'17:00〜22:00 月曜定休',                    b:'2,000〜3,000円', s:['酒場放浪記','今夜はコの字で'],              u:''},
+  {id:55, n:'魚草',               a:'上野アメ横',       t:'motsu',      lat:35.7088, lng:139.7716, d:'アメ横の立ち飲み海鮮。昼から飲むおじさんの楽園。鮮度のいい海鮮を低価格で楽しめる。昭和の空気感がたまらない。',                                                                                                                                              h:'10:00〜21:00 無休',                        b:'1,500〜3,000円', s:['上野定番'],                                u:''},
+
+  {id:60, n:'六厘舎',             a:'東京駅一番街',     t:'ramen',      lat:35.6812, lng:139.7671, d:'つけ麺ブームを作ったパイオニア。東京駅地下のラーメンストリート常設店。濃厚魚介豚骨スープと極太麺の組み合わせ。GWは行列必至。',                                                                                                                            h:'7:30〜23:00 無休',                         b:'1,000〜1,500円', s:['東京ラーメンストリート'],                   u:'https://tabelog.com/tokyo/A1302/A130201/13120455/'},
+  {id:61, n:'そらのいろ NIPPON',  a:'東京駅一番街',     t:'ramen',      lat:35.6812, lng:139.7673, d:'ミシュランガイド掲載店。天草大王を使った醤油らーめんとビーガン・グルテンフリーメニューも充実。東京駅の中で食べられる本格派。',                                                                                                                            h:'7:30〜23:00 無休',                         b:'1,000〜1,500円', s:['東京ラーメンストリート'],                   u:''},
+  {id:62, n:'花道庵',             a:'東京駅一番街',     t:'ramen',      lat:35.6812, lng:139.7669, d:'ミシュランガイド東京2年連続選出の味噌ラーメン店。いってらっしゃい・おかえりなさいの心で作る一杯。',                                                                                                                                                         h:'7:30〜23:00 無休',                         b:'1,000〜1,500円', s:['東京ラーメンストリート'],                   u:''},
+  {id:63, n:'中華ソバ 伊吹',      a:'志村坂上',         t:'ramen',      lat:35.7676, lng:139.6955, d:'煮干し系ラーメン全国屈指の名店。7席のみのカウンターに行列が絶えない。強烈な煮干風味と歯切れのいい細ストレート麺が絶妙。',                                                                                                                                   h:'11:15〜14:30 火水定休',                    b:'〜1,500円',      s:['食べログ百名店'],                           u:'https://tabelog.com/tokyo/A1322/A132204/13085490/'},
+
+  {id:70, n:'エチオピア',         a:'神保町',           t:'curry',      lat:35.6962, lng:139.7583, d:'1983年創業。豆カレーで40年愛される神保町の名店。ビーフカレーと野菜カレーが人気。辛さを選べるシステムも人気の理由。神保町カレー文化の顔。',                                                                                                              h:'11:00〜22:00 無休',                        b:'1,000〜1,500円', s:['神保町定番','各メディア'],                   u:'https://tabelog.com/tokyo/A1310/A131003/13002635/'},
+  {id:71, n:'魯珈（ろか）',        a:'新大久保',         t:'curry',      lat:35.7012, lng:139.6995, d:'スパイスカレーの絶対王者。記帳式で昼10時・夜16時から整理券配布。都内シェフも通う。来る理由が本物の味だから許容範囲。',                                                                                                                                      h:'11:30〜14:30/18:00〜21:30 月曜定休',       b:'1,500〜2,500円', s:['各メディア','グルメ通御用達'],                u:'https://tabelog.com/tokyo/A1304/A130403/13138872/'},
+  {id:72, n:'デリー',             a:'上野',             t:'curry',      lat:35.7141, lng:139.7774, d:'1956年創業。日本インドカレーの原点と言える老舗。カシミールカレーが名物で辛さと深みが別格。上野本店と銀座店がある。',                                                                                                                                       h:'11:30〜21:00 月曜定休',                    b:'1,500〜2,500円', s:['日本カレー史の定番','各メディア'],           u:'https://tabelog.com/tokyo/A1311/A131101/13003117/'},
+
+  {id:80, n:'大和寿司',           a:'豊洲市場',         t:'sushi',      lat:35.6482, lng:139.7857, d:'豊洲市場内の本物の寿司屋。安くて本物のネタが食べられると各局が定期的に取材。市場移転後から聖地的な存在に。',                                                                                                                                                h:'5:30〜14:00 日曜定休',                     b:'3,000〜6,000円', s:['報道取材定番'],                             u:'https://tabelog.com/tokyo/A1313/A131305/13018354/'},
+  {id:81, n:'まぐろや くろぎん',  a:'築地場外市場',     t:'sushi',      lat:35.6653, lng:139.7700, d:'SNSでバズった築地の人気まぐろ専門店。GWは行列必至。No.1セット（各部位の食べ比べ）が名物。市場内で食べるライブ感が魅力。',                                                                                                                                  h:'8:00〜13:00 無休',                         b:'2,000〜5,000円', s:['築地定番'],                                u:''},
+
+  {id:90, n:'スタミナ苑',         a:'足立区鹿浜',       t:'yakiniku',   lat:35.8012, lng:139.7583, d:'辺鄙な立地なのに食べログ焼肉全国上位常連。地元発祥の本物の焼肉。各局が知る人ぞ知る系特集で定期登場。',                                                                                                                                                      h:'火水日 17:00〜23:00',                      b:'6,000〜10,000円', s:['食べログ百名店','報道取材'],               u:'https://tabelog.com/tokyo/A1324/A132404/13000330/'},
+  {id:91, n:'大はし',             a:'北千住',           t:'yakiniku',   lat:35.7491, lng:139.8025, d:'1877年創業。もつ煮の老舗として知られる。報道番組の東京最古の居酒屋特集で頻出。下町の飲み処として長年地元に愛される。',                                                                                                                                    h:'16:00〜22:30 月曜定休',                    b:'2,000〜4,000円', s:['報道取材','下町老舗'],                      u:'https://tabelog.com/tokyo/A1324/A132403/13009024/'},
+
+  {id:100,n:'ナンマンゴギ',       a:'新大久保',         t:'korean',     lat:35.7012, lng:139.6997, d:'常時0.5度の塩水で低温熟成させた豚肉を炭火で焼くサムギョプサル専門店。まず塩とわさびだけで食べてほしいと勧められるほど肉の味が違う。',                                                                                                                   h:'11:00〜23:00 無休',                        b:'2,500〜5,000円', s:['新大久保本格コリアン'],                      u:''},
+  {id:101,n:'元祖 宋家 本館',    a:'新大久保',         t:'korean',     lat:35.7010, lng:139.6993, d:'新大久保で23年続くカムジャタン（豚背骨とじゃがいもの鍋）専門店。メニューはほぼカムジャタンのみ。それで23年続いてきた実力。',                                                                                                                               h:'17:00〜23:00 月曜定休',                    b:'2,500〜4,500円', s:['新大久保老舗コリアン'],                      u:''},
+
+  {id:110,n:'竹むら',             a:'神田',             t:'cafe',       lat:35.6950, lng:139.7683, d:'1930年創業。粟ぜんざいと揚げまんじゅうが名物。国の有形文化財の建物で食べる体験は唯一無二。NHKの昭和の東京特集の常連。酒場放浪記にも登場。',                                                                                                        h:'11:00〜20:30 日曜定休',                    b:'1,000〜2,000円', s:['神田老舗','酒場放浪記'],                    u:'https://tabelog.com/tokyo/A1310/A131002/13002003/'},
+  {id:111,n:'梅むら',             a:'浅草',             t:'cafe',       lat:35.7117, lng:139.7965, d:'豆かんとみつ豆の老舗甘味処。浅草の空気と一緒に食べる価値あり。観光客も来るが地元の常連が多い本物の甘味屋。',                                                                                                                                              h:'11:00〜19:30 水曜定休',                    b:'〜1,500円',      s:['浅草老舗','報道取材'],                      u:'https://tabelog.com/tokyo/A1311/A131102/13005394/'},
+  {id:112,n:'木馬',               a:'渋谷・桜丘',       t:'cafe',       lat:35.6580, lng:139.7000, d:'渋谷の大規模再開発を生き延びた奇跡の昭和純喫茶。もはやそれだけで価値がある。渋谷の昔を知る常連が通う場所。',                                                                                                                                              h:'8:00〜23:00 無休',                         b:'〜1,000円',      s:['渋谷昭和遺産'],                            u:''},
+
+  {id:120,n:'庄助',               a:'門前仲町',         t:'kodoku',     lat:35.6720, lng:139.7983, d:'孤独のグルメS1第1話に登場した記念すべき第1聖地。焼き鳥と焼きめしというシンプルながら満足感の高い料理が初回にふさわしい王道の味。',                                                                                                                    h:'17:00〜22:30 月曜定休',                    b:'2,000〜4,000円', s:['孤独のグルメS1第1話'],                       u:''},
+  {id:121,n:'三ちゃん食堂',       a:'板橋',             t:'kodoku',     lat:35.7519, lng:139.7105, d:'孤独のグルメS2第1話に登場した大衆食堂。昔ながらの定食スタイルが魅力。五郎が食べた料理を聖地巡礼できる。',                                                                                                                                                  h:'11:00〜15:00/17:00〜21:00 月曜定休',       b:'〜1,500円',      s:['孤独のグルメS2第1話'],                       u:''},
+  {id:122,n:'みつわ',             a:'西荻窪',           t:'kodoku',     lat:35.7046, lng:139.6070, d:'孤独のグルメS2第1話に登場した広島風お好み焼き店。五郎さんが満面の笑みで食べた回として記憶される名シーン。',                                                                                                                                                h:'11:30〜22:00 月曜定休',                    b:'1,000〜2,000円', s:['孤独のグルメS2第1話'],                       u:''},
+  {id:123,n:'だるまや',           a:'小岩',             t:'kodoku',     lat:35.7337, lng:139.8674, d:'孤独のグルメS5第1話に登場した小岩の定食屋。昔ながらの定食スタイルが魅力で生姜焼き定食が特に人気。',                                                                                                                                                        h:'11:00〜21:00 水曜定休',                    b:'〜1,500円',      s:['孤独のグルメS5第1話'],                       u:''},
+  {id:124,n:'ノング インレイ',     a:'高田馬場',         t:'kodoku',     lat:35.7126, lng:139.7036, d:'孤独のグルメに登場したミャンマー料理店。高田馬場の多国籍エリアに位置する本格派。独自のスパイス使いと素朴な家庭料理が評判。',                                                                                                                              h:'11:00〜21:00 火曜定休',                    b:'1,000〜2,000円', s:['孤独のグルメ'],                            u:'https://tabelog.com/tokyo/A1305/A130502/13150413/'},
+  {id:125,n:'きっちん大浪',       a:'吉祥寺',           t:'kodoku',     lat:35.7030, lng:139.5795, d:'孤独のグルメ「それぞれ」第11話に登場した吉祥寺の洋食屋。煮付けが名物。吉祥寺の地元民に愛される昔ながらの洋食店。',                                                                                                                                         h:'11:30〜21:00 月曜定休',                    b:'1,000〜2,000円', s:['孤独のグルメ（それぞれ）第11話'],          u:''},
+
+  {id:130,n:'丸千葉',             a:'南千住',           t:'sakaba',     lat:35.7355, lng:139.8035, d:'酒場放浪記に登場した南千住の老舗大衆居酒屋。吉田類さんの常連スポット。南千住の情緒ある一軒。',                                                                                                                                                              h:'16:00〜23:00 日月定休',                    b:'2,000〜4,000円', s:['酒場放浪記'],                              u:''},
+  {id:131,n:'大林',               a:'篠崎',             t:'sakaba',     lat:35.6994, lng:139.9017, d:'コの字カウンターの最高峰と称される大衆酒場の伝説的存在。孤独のグルメ・酒場放浪記・今夜はコの字での三番組に登場した稀有な聖地。',                                                                                                                       h:'17:00〜22:30 月火定休',                    b:'2,000〜3,500円', s:['孤独のグルメ','酒場放浪記','今夜はコの字で'], u:''},
+  {id:132,n:'もがみや',           a:'浅草',             t:'sakaba',     lat:35.7117, lng:139.7968, d:'酒場放浪記で中村勘九郎との対談回に登場した名居酒屋。浅草の地元民に長年愛される。',                                                                                                                                                                        h:'17:00〜23:00 月曜定休',                    b:'2,000〜4,000円', s:['酒場放浪記'],                              u:''},
+
+  {id:140,n:'のんき',             a:'堀切菖蒲園',       t:'drama',      lat:35.7502, lng:139.8530, d:'コの字カウンター17〜18席。今夜はコの字でに登場。強炭酸の酎ハイボールが名物。創業50年以上の老舗酒場。',                                                                                                                                                    h:'17:00〜23:00 月曜定休',                    b:'2,000〜3,000円', s:['今夜はコの字で'],                          u:''},
+  {id:141,n:'大力酒蔵',           a:'金町',             t:'drama',      lat:35.7656, lng:139.8692, d:'今夜はコの字でに登場。コンロ付きのコの字カウンターで自分でホルモンを手焼きするスタイルが独特。人生マイペースな空間。',                                                                                                                                    h:'17:00〜22:00 月火定休',                    b:'2,000〜3,500円', s:['今夜はコの字で'],                          u:''},
+  {id:142,n:'燗コーヒー藤々',     a:'四谷・荒木町',     t:'drama',      lat:35.6876, lng:139.7270, d:'今夜はコの字でS2に登場。迷路のような路地を抜けた先に佇むコの字酒場。二人で営む穏やかな空間が心地よい。',                                                                                                                                                  h:'18:00〜24:00 日曜定休',                    b:'2,500〜4,000円', s:['今夜はコの字でS2'],                          u:''},
+  {id:143,n:'大坂屋',             a:'門前仲町',         t:'drama',      lat:35.6730, lng:139.7983, d:'今夜はコの字でに登場。三日月型カウンターで牛にこみを堪能できる大衆酒場。門前仲町の老舗として知られる。',                                                                                                                                                    h:'16:00〜23:00 月曜定休',                    b:'2,000〜3,500円', s:['今夜はコの字で'],                          u:''}
+];
+
+// ── state ──
+var curCat='all', curQ='', curView='list', mapReady=false, mapObj=null, mapMs=[];
+
+function filtered(){
+  return D.filter(function(r){
+    var ok1 = (curCat==='all' || r.t===curCat);
+    var q = curQ.trim().toLowerCase();
+    var ok2 = !q || r.n.toLowerCase().indexOf(q)>=0 || r.a.toLowerCase().indexOf(q)>=0 ||
+              r.s.some(function(x){ return x.toLowerCase().indexOf(q)>=0; });
+    return ok1 && ok2;
+  });
+}
+
+// ── card builder using createElement (no innerHTML for Japanese text) ──
+function makeCard(r){
+  var cat = CAT[r.t] || {l:r.t, i:'📍', c:'#888'};
+
+  // CARD wrapper
+  var card = document.createElement('div');
+  card.style.cssText = 'background:#fff;border:1.5px solid #E2D9CE;border-radius:10px;overflow:hidden;margin-bottom:8px;box-shadow:0 1px 3px rgba(100,60,20,.08);';
+
+  // TOP
+  var top = document.createElement('div');
+  top.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:12px 14px 8px;';
+
+  var ic = document.createElement('span');
+  ic.textContent = cat.i;
+  ic.style.cssText = 'font-size:22px;flex-shrink:0;line-height:1.3;margin-top:1px;';
+  top.appendChild(ic);
+
+  var body = document.createElement('div');
+  body.style.cssText = 'flex:1;min-width:0;';
+
+  var nm = document.createElement('div');
+  nm.textContent = r.n;
+  nm.style.cssText = 'font-size:15px;font-weight:bold;color:#2A2420;margin-bottom:5px;line-height:1.4;';
+  body.appendChild(nm);
+
+  var row1 = document.createElement('div');
+  row1.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;';
+
+  var ar = document.createElement('span');
+  ar.textContent = '📍 ' + r.a;
+  ar.style.cssText = 'font-size:12px;color:#8A7F76;';
+  row1.appendChild(ar);
+
+  var ct = document.createElement('span');
+  ct.textContent = cat.l;
+  ct.style.cssText = 'font-size:10px;font-weight:bold;padding:2px 8px;border-radius:10px;background:#F5E6D8;color:#B8622A;border:1px solid #E8C8A8;';
+  row1.appendChild(ct);
+  body.appendChild(row1);
+
+  // source tags
+  var tgRow = document.createElement('div');
+  tgRow.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;';
+  var maxS = Math.min(r.s.length, 3);
+  for(var k=0; k<maxS; k++){
+    var tg = document.createElement('span');
+    tg.textContent = r.s[k];
+    tg.style.cssText = 'font-size:10px;padding:2px 7px;border-radius:10px;background:#F3EDE4;color:#8A7F76;border:1px solid #E2D9CE;';
+    tgRow.appendChild(tg);
+  }
+  body.appendChild(tgRow);
+  top.appendChild(body);
+  card.appendChild(top);
+
+  // FOOTER (buttons)
+  var ft = document.createElement('div');
+  ft.style.cssText = 'display:flex;align-items:center;padding:0 14px 10px;';
+
+  var dtBtn = document.createElement('button');
+  dtBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:bold;color:#B8622A;display:flex;align-items:center;gap:3px;padding:0;';
+  var dtTxt = document.createElement('span');
+  dtTxt.textContent = '詳細を見る ';
+  var dtArr = document.createElement('span');
+  dtArr.textContent = '▼';
+  dtArr.style.cssText = 'font-size:9px;display:inline-block;transition:transform .2s;';
+  dtBtn.appendChild(dtTxt);
+  dtBtn.appendChild(dtArr);
+  ft.appendChild(dtBtn);
+
+  var mpBtn = document.createElement('button');
+  mpBtn.textContent = '🗺 地図で見る';
+  mpBtn.style.cssText = 'margin-left:auto;background:none;border:none;cursor:pointer;font-family:inherit;font-size:11px;color:#8A7F76;padding:0;';
+  ft.appendChild(mpBtn);
+  card.appendChild(ft);
+
+  // DETAIL PANEL
+  var dp = document.createElement('div');
+  dp.style.cssText = 'display:none;background:#FAF7F2;border-top:1.5px solid #E2D9CE;padding:12px 14px 14px;';
+
+  var desc = document.createElement('div');
+  desc.textContent = r.d;
+  desc.style.cssText = 'font-size:12px;color:#6A625A;line-height:1.8;margin-bottom:10px;';
+  dp.appendChild(desc);
+
+  if(r.h){
+    var hrow = document.createElement('div');
+    hrow.style.cssText = 'display:flex;gap:8px;font-size:12px;margin-bottom:5px;';
+    var hic = document.createElement('span'); hic.textContent='⏰'; hic.style.color='#B0A8A0'; hic.style.flexShrink='0';
+    var hvl = document.createElement('span'); hvl.textContent=r.h; hvl.style.color='#2A2420'; hvl.style.lineHeight='1.5';
+    hrow.appendChild(hic); hrow.appendChild(hvl);
+    dp.appendChild(hrow);
+  }
+  if(r.b){
+    var brow = document.createElement('div');
+    brow.style.cssText = 'display:flex;gap:8px;font-size:12px;margin-bottom:10px;';
+    var bic = document.createElement('span'); bic.textContent='💴'; bic.style.color='#B0A8A0'; bic.style.flexShrink='0';
+    var bvl = document.createElement('span'); bvl.textContent=r.b; bvl.style.color='#2A2420'; bvl.style.lineHeight='1.5';
+    brow.appendChild(bic); brow.appendChild(bvl);
+    dp.appendChild(brow);
+  }
+  if(r.u){
+    var lnk = document.createElement('a');
+    lnk.textContent = '🔗 食べログで見る';
+    lnk.href = r.u;
+    lnk.target = '_blank';
+    lnk.rel = 'noopener';
+    lnk.style.cssText = 'display:inline-flex;align-items:center;gap:5px;background:#B8622A;color:#fff;border-radius:7px;padding:7px 16px;font-size:12px;font-weight:bold;text-decoration:none;';
+    dp.appendChild(lnk);
+  } else {
+    var noLnk = document.createElement('span');
+    noLnk.textContent = '食べログリンク準備中';
+    noLnk.style.cssText = 'font-size:11px;color:#B0A8A0;';
+    dp.appendChild(noLnk);
+  }
+  card.appendChild(dp);
+
+  // Events
+  var isOpen = false;
+  dtBtn.onclick = function(){
+    isOpen = !isOpen;
+    dp.style.display = isOpen ? 'block' : 'none';
+    dtArr.style.transform = isOpen ? 'rotate(180deg)' : '';
+  };
+  var lat=r.lat, lng=r.lng;
+  mpBtn.onclick = function(){
+    sv('map');
+    setTimeout(function(){ if(mapObj) mapObj.setView([lat,lng],16); }, 200);
+  };
+
+  return card;
+}
+
+// ── render ──
+function render(){
+  var lv = document.getElementById('lv');
+  // clear
+  while(lv.firstChild) lv.removeChild(lv.firstChild);
+
+  var items = filtered();
+  document.getElementById('cnt').textContent = items.length + '件';
+
+  if(!items.length){
+    var em = document.createElement('div');
+    em.style.cssText = 'padding:60px 20px;text-align:center;color:#B0A8A0;font-size:14px;';
+    em.textContent = '🔍 該当するお店が見つかりませんでした';
+    lv.appendChild(em);
+    return;
+  }
+
+  var frag = document.createDocumentFragment();
+  for(var i=0; i<items.length; i++){
+    frag.appendChild(makeCard(items[i]));
+  }
+  lv.appendChild(frag);
+}
+
+// ── map ──
+function initMap(){
+  if(mapReady) return;
+  mapReady = true;
+  mapObj = L.map('map', {center:[35.690,139.745], zoom:12});
+  L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    {attribution:'Tiles &copy; Esri', maxZoom:17}
+  ).addTo(mapObj);
+  renderMarkers();
+}
+
+function mkIcon(t){
+  var c = CAT[t] || {i:'📍', c:'#888'};
+  return L.divIcon({
+    className:'',
+    html:'<div style="background:'+c.c+';width:32px;height:32px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(255,255,255,.9);box-shadow:0 2px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;"><span style="transform:rotate(45deg);font-size:14px;line-height:1;">'+c.i+'</span></div>',
+    iconSize:[32,32], iconAnchor:[16,32], popupAnchor:[0,-34]
+  });
+}
+
+function renderMarkers(){
+  if(!mapObj) return;
+  for(var i=0;i<mapMs.length;i++) mapObj.removeLayer(mapMs[i]);
+  mapMs = [];
+  var items = filtered();
+  for(var j=0;j<items.length;j++){
+    var r = items[j];
+    var c = CAT[r.t] || {l:r.t};
+    var ds = r.d.length>80 ? r.d.substring(0,80)+'…' : r.d;
+    var tl = r.u ? '<a class="pp-lk" href="'+r.u+'" target="_blank" rel="noopener">🔗 食べログ</a>' : '';
+    var pop = '<div style="font-size:14px;font-weight:bold;color:#2A2420;margin-bottom:3px;">'+r.n+'</div>'+
+              '<div style="font-size:11px;color:#8A7F76;margin-bottom:5px;">📍 '+r.a+'</div>'+
+              '<span style="font-size:10px;font-weight:bold;padding:2px 7px;border-radius:10px;background:#F5E6D8;color:#B8622A;display:inline-block;margin-bottom:7px;">'+c.l+'</span>'+
+              '<div style="font-size:11px;color:#6A625A;line-height:1.6;margin-bottom:8px;">'+ds+'</div>'+tl;
+    var m = L.marker([r.lat,r.lng],{icon:mkIcon(r.t)})
+      .bindPopup(pop,{maxWidth:240}).addTo(mapObj);
+    mapMs.push(m);
+  }
+}
+
+// ── view switch ──
+function sv(v){
+  curView = v;
+  document.getElementById('lv').style.display = v==='list' ? 'block' : 'none';
+  document.getElementById('mv').style.display = v==='map'  ? 'block' : 'none';
+  document.getElementById('bl').classList.toggle('on', v==='list');
+  document.getElementById('bm').classList.toggle('on', v==='map');
+  if(v==='map'){
+    initMap();
+    setTimeout(function(){ if(mapObj){ mapObj.invalidateSize(); renderMarkers(); } }, 150);
+  }
+}
+
+// ── chips ──
+var chips = document.querySelectorAll('.ch');
+for(var ci=0; ci<chips.length; ci++){
+  chips[ci].addEventListener('click', function(){
+    for(var k=0;k<chips.length;k++) chips[k].classList.remove('on');
+    this.classList.add('on');
+    curCat = this.getAttribute('data-c');
+    render();
+    if(curView==='map') renderMarkers();
+  });
+}
+
+// ── search ──
+document.getElementById('q').addEventListener('input', function(){
+  curQ = this.value;
+  render();
+  if(curView==='map') renderMarkers();
+});
+
+// ── INIT ──
+render();
+</script>
+</body>
+</html>
